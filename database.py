@@ -5,7 +5,9 @@ from time import sleep, localtime, strftime
 import os
 from btree import Btree
 import shutil
-from misc import split_condition
+from misc import split_condition, convert_to_type, parameter_config, create_pattern
+import re
+
 
 class Database:
     '''
@@ -581,3 +583,145 @@ class Database:
         index = pickle.load(f)
         f.close()
         return index
+
+        
+     
+    def execSQL(self, query):
+        query = query.rstrip(';') #Removes any semicolons from the end of the query, as they are not needed.
+
+        if (re.match("(?i)^[\s]*SELECT .+ FROM .+", query)): ### SELECT ###
+            #Splitting the query into variables, using 'parameter_config'.
+            columns = parameter_config(query, 'SELECT', 'FROM')
+            table = parameter_config(query, 'FROM', ['INNER JOIN','WHERE','ORDER BY','LIMIT'])
+            innerjoin_table = parameter_config(query, 'INNER JOIN', 'ON')
+            innerjoin_condition = parameter_config(query, 'ON', ['WHERE','ORDER BY','LIMIT'])
+            condition = parameter_config(query, 'WHERE', ['ORDER BY','LIMIT'])
+            order_by = parameter_config(query, 'ORDER BY', ['ASC','DESC','LIMIT'])
+            asc_order = (re.match(r'(?i).* ORDER BY .+ DESC', query)==None)
+            limit = parameter_config(query, 'LIMIT', '')
+            
+            #Presetting some values in order to prevent future errors.
+            if (columns == ['*']): columns = '*'      
+            if (order_by == None): order_by = [None]            
+            if (condition == None): condition = [None]
+            
+            try: #Converting limit to integer (if possible).
+                limit = int(limit[0])
+            except:
+                limit = None
+
+            
+            if (re.match("(?i)^[\s]*SELECT .+ FROM .+ INNER JOIN .+ ON .+", query)): #with INNER JOIN
+                if (columns != '*'):
+                    print ("You cannot select specific columns with 'Inner Join' yet. Showing all columns...\n")
+                
+                self.inner_join(table[0], innerjoin_table[0], innerjoin_condition[0], return_object=True)._select_where('*', condition[0], order_by=order_by[0], asc=asc_order, top_k=limit).show()
+            else: #without INNER JOIN
+                self.select(table[0], columns, condition[0], order_by=order_by[0], asc=asc_order, top_k=limit)
+
+
+        elif (re.match("(?i)^[\s]*INSERT INTO .+ SELECT .+", query)): ### INSERT + SELECT ###        
+            save_as = parameter_config(query, 'INSERT INTO', 'SELECT')
+            select_query = re.search('(?i)[\s]*(SELECT .+)', query).group(1) #Query without 'INSERT'. A normal 'SELECT' query.
+            
+            #Same steps as 'SELECT'
+            columns = parameter_config(select_query, 'SELECT', 'FROM')
+            table = parameter_config(select_query, 'FROM', ['INNER JOIN','WHERE','ORDER BY','LIMIT'])
+            innerjoin_table = parameter_config(select_query, 'INNER JOIN', 'ON')
+            innerjoin_condition = parameter_config(select_query, 'ON', ['WHERE','ORDER BY','LIMIT'])
+            condition = parameter_config(select_query, 'WHERE', ['ORDER BY','LIMIT'])
+            order_by = parameter_config(select_query, 'ORDER BY', ['ASC','DESC','LIMIT'])
+            asc_order = (re.match(r'(?i).* ORDER BY .+ DESC', select_query)==None)
+            limit = parameter_config(select_query, 'LIMIT', '')
+            
+            if (columns == ['*']): columns = '*'      
+            if (order_by == None): order_by = [None]            
+            if (condition == None): condition = [None]
+            
+            try:
+                limit = int(limit[0])
+            except:
+                limit = None
+
+            
+            if (re.match("(?i)^[\s]*SELECT .+ FROM .+ INNER JOIN .+ ON .+", select_query)): #with INNER JOIN
+                if (columns != '*'):
+                    print ("You cannot select specific columns with 'Inner Join' yet. Showing all columns...\n")
+                
+                self.inner_join(table[0], innerjoin_table[0], innerjoin_condition[0], return_object=True)._select_where('*', condition[0], order_by=order_by[0], asc=asc_order, top_k=limit, save_as=save_as[0]).show()
+            else: #without INNER JOIN
+                self.select(table[0], columns, condition[0], order_by=order_by[0], asc=asc_order, top_k=limit, save_as=save_as[0])
+            
+
+        elif (re.match("(?i)^[\s]*INSERT INTO .+ VALUES .+", query)): ### INSERT ###         
+            table = parameter_config(query, 'INSERT INTO', 'VALUES')
+            values = re.search('(?i)VALUES (.+)', query).group(1)
+            
+            #Converting string (values) to array.
+            values = values.replace('\'','').replace('\"','').replace('[','').replace(']','').split(',')
+            values = [item.strip() for item in values]
+            
+            self.insert(table[0], values)
+        
+        
+        elif (re.match("(?i)^[\s]*UPDATE .+ SET .+ WHERE .+", query)): ### UPDATE ###
+            '''
+            Note: The current version of miniDB supports only 1 change per update. 
+            We can easily fetch all requested updates with a for loop in 'changes'.
+            However, if we change a value that also exist in our condition, 
+            the other changes in the same statement might be affected.            
+            For now, we will only use the first change in the query.
+            '''
+            
+            table = parameter_config(query, 'UPDATE', 'SET')
+            changes = parameter_config(query, 'SET', 'WHERE') 
+            condition = parameter_config(query, 'WHERE', '') 
+
+            column = changes[0].split('=')[0] #characters before '='
+            value = changes[0].split('=')[1] #characters after '='
+            
+            self.update(table[0], value, column, condition[0])
+            
+
+        elif (re.match("(?i)^[\s]*DELETE FROM .+ WHERE .+", query)): ### DELETE ###        
+            table = parameter_config(query, 'DELETE FROM', 'WHERE')
+            condition = parameter_config(query, 'WHERE', '')
+            
+            self.delete(table[0], condition[0])   
+        
+        
+        elif (re.match("(?i)^[\s]*CREATE TABLE .+", query)): ### CREATE TABLE ###
+            name = parameter_config(query, 'CREATE TABLE', '\(')    
+            columns = parameter_config(query, '\(', '\)')
+            '''
+            According to the SQL syntax, columns should look like this:
+            ['ID','str','Name','str','Age','int','Salary','int']
+            So, in order to separate the column names and their types,
+            we have to extract the even positioned elements (starting from 0).
+            and the odd positioned elements respectively.            
+            '''
+            colnames = columns[0::2]
+            coltypes = columns[1::2]
+
+            coltypes = [convert_to_type(i) for i in coltypes] #Converting to a list of types.
+            
+            self.create_table(name[0],colnames,coltypes)
+
+            
+        elif (re.match("(?i)^[\s]*DROP TABLE .+", query)): ### DROP TABLE ###
+            table = parameter_config(query, 'DROP TABLE', '')  
+            
+            self.drop_table(table[0])            
+
+            
+        elif (re.match("(?i)^[\s]*CREATE INDEX .+ ON .+", query)): ### CREATE INDEX ON ###
+            name = parameter_config(query, 'CREATE INDEX', 'ON')
+            table = parameter_config(query, 'ON', '')
+            
+            self.create_index(table[0],name[0],'Btree')
+            
+            
+        else:
+            print ("## ERROR -> Invalid SQL statement")
+
+

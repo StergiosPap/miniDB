@@ -14,6 +14,7 @@ db.create_table('advisor', ['s_ID', 'i_ID'], [str,str], primary_key='s_ID')
 db.create_table('time_slot', ['time_slot_id', 'day', 'start_hr', 'start_min', 'end_hr', 'end_min'], [str,str,int,int,str,str])
 db.create_table('prereq', ['course_id', 'prereq_id'], [str,str])
 
+
 db.insert('classroom', ['Packard', '101', '500'])
 db.insert('classroom', ['Painter', '514', '10'])
 db.insert('classroom', ['Taylor', '3128', '70'])
