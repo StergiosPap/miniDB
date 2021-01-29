@@ -8,16 +8,16 @@ def execSQL(query):
     '''
     query = query.rstrip(';') #Removes any semicolons from the end of the query, as they are not needed.
     
+    global db 
+    
     if (re.match("(?i)^[\s]*CREATE DATABASE .+", query)): ### CREATE DATABASE ###
         name = parameters_create_database(query)
         
-        global db 
         db = Database(name, load=False)
         
     elif (re.match("(?i)^[\s]*LOAD DATABASE .+", query)): ### LOAD DATABASE ###
         name = parameters_create_database(query)
         
-        global db 
         db = Database(name, load=True)
     
     else:
