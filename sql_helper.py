@@ -1,3 +1,4 @@
+from misc import convert_to_type
 import re
 
 def first_element(list):
